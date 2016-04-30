@@ -41,6 +41,7 @@ WaveformViewport::WaveformViewport(std::vector<Peak> &&peaks, int sampleRate, in
 
 void WaveformViewport::paintWav(QPainter &painter, bool TryOptimize)
 {
+    //return;
     if(Peaks.empty())
     {
         painter.fillRect(rect(), WavBackColor);
@@ -95,6 +96,7 @@ void WaveformViewport::paintWav(QPainter &painter, bool TryOptimize)
 
     unsigned int x_scaled, next_x_scaled;
     int PeakMax, PeakMin;
+
 
     for(int x = x1_update; x <= x2_update; x++)
     {
@@ -163,17 +165,29 @@ void WaveformViewport::paintRuler(QPainter &painter)
 
             // Calculate text coordinates
             x1 = x - metrics.width(PosString) / 2;
-            height = metrics.height();
-            width = metrics.width(PosString);
+            //height = metrics.height();
+            //width = metrics.width(PosString);
 
-            // Draw text shadow
-            painter.setPen(RulerTextShadowColor);
-            //painter.drawText(QRect(x1 + 2, Rect.top() + 4 + 2, width, height), PosString);
+            if(TimeStamps.contains(PosString))
+            {
+                // Draw text shadow
+                painter.setPen(RulerTextShadowColor);
+                painter.drawStaticText(x1 + 2, Rect.top() + 4, *TimeStamps.object(PosString));
+                painter.setPen(RulerTextColor);
+                painter.drawStaticText(x1, Rect.top() + 4, *TimeStamps.object(PosString));
+            }
+            else
+            {
+                QStaticText *timestamp = new QStaticText(PosString);
+                TimeStamps.insert(PosString, timestamp);
+                // Draw text shadow
+                painter.setPen(RulerTextShadowColor);
+                painter.drawStaticText(x1 + 2, Rect.top() + 4, *timestamp);
 
-            // Draw text
-            painter.setPen(RulerTextColor);
-            //painter.drawText(QRect(x1, Rect.top() + 4, width, height), PosString);
-
+                // Draw text
+                painter.setPen(RulerTextColor);
+                painter.drawStaticText(x1, Rect.top() + 4, *timestamp);
+            }
             // Draw subdivision
             x2 = x + timeToPixel(StepMs / 2);
             painter.drawLine(QPoint(x2, Rect.top() + 1), QPoint(x2, Rect.top() + 3));
@@ -192,11 +206,15 @@ void WaveformViewport::scrollContentsBy(int NewPositionMs)
     {
         PositionMs = NewPositionMs;
     }
-    updateWithNewPosition();
+    update();
 }
 
 void WaveformViewport::paintEvent(QPaintEvent *)
 {
+    {
+        QPainter imagePainter(&OffscreenWav);
+        paintWav(imagePainter, false);
+    }
     QPainter painter(this);
     painter.drawImage(0, 0, OffscreenWav);
     paintRuler(painter);
@@ -220,14 +238,6 @@ int WaveformViewport::timeToPixel(int time) const
 int WaveformViewport::pixelToTime(int pixel) const
 {
     return std::round(pixel * (PageSizeMs / width()));
-}
-
-void WaveformViewport::updateWithNewPosition()
-{
-    QPainter imagePainter(&OffscreenWav);
-    paintWav(imagePainter, false);
-    OldPositionMs = PositionMs;
-    update();
 }
 
 WaveformView::WaveformView(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent) :

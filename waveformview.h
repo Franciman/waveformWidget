@@ -5,6 +5,8 @@
 #include <QPixmap>
 #include <QWidget>
 #include <QAbstractScrollArea>
+#include <QCache>
+#include <QStaticText>
 
 struct Peak
 {
@@ -33,6 +35,8 @@ class WaveformViewport : public QWidget
 
     int DisplayRulerHeight;
 
+    QCache<QString, QStaticText> TimeStamps;
+
 public:
     WaveformViewport(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent = 0);
 
@@ -49,7 +53,7 @@ private:
     int timeToPixel(int time) const;
     int pixelToTime(int pixel) const;
 
-    void updateWithNewPosition();
+
 };
 
 class WaveformView : public QAbstractScrollArea
