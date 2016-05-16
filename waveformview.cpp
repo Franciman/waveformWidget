@@ -161,25 +161,25 @@ void WaveformViewport::paintRuler(QPainter &painter)
             x = timeToPixel(p - PositionMs);
             painter.drawLine(QPoint(x, Rect.top() + 1), QPoint(x, Rect.top() + 5));
 
-            PosString = timeMsToShortString(p, StepLog);
 
             // Calculate text coordinates
             x1 = x - metrics.width(PosString) / 2;
             //height = metrics.height();
             //width = metrics.width(PosString);
 
-            if(TimeStamps.contains(PosString))
+            if(TimeStamps.contains(p))
             {
                 // Draw text shadow
                 painter.setPen(RulerTextShadowColor);
-                painter.drawStaticText(x1 + 2, Rect.top() + 4, *TimeStamps.object(PosString));
+                painter.drawStaticText(x1 + 2, Rect.top() + 4, *TimeStamps.object(p));
                 painter.setPen(RulerTextColor);
-                painter.drawStaticText(x1, Rect.top() + 4, *TimeStamps.object(PosString));
+                painter.drawStaticText(x1, Rect.top() + 4, *TimeStamps.object(p));
             }
             else
             {
+                PosString = timeMsToShortString(p, StepLog);
                 QStaticText *timestamp = new QStaticText(PosString);
-                TimeStamps.insert(PosString, timestamp);
+                TimeStamps.insert(p, timestamp);
                 // Draw text shadow
                 painter.setPen(RulerTextShadowColor);
                 painter.drawStaticText(x1 + 2, Rect.top() + 4, *timestamp);

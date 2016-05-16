@@ -35,7 +35,7 @@ class WaveformViewport : public QWidget
 
     int DisplayRulerHeight;
 
-    QCache<QString, QStaticText> TimeStamps;
+    QCache<int, QStaticText> TimeStamps;
 
 public:
     WaveformViewport(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent = 0);
