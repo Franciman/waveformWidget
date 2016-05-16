@@ -153,7 +153,7 @@ void WaveformViewport::paintRuler(QPainter &painter)
         int p = PositionMs / (StepMs * StepMs);
         int x;
         int x1, x2;
-        int height, width;
+        //int height, width;
         QString PosString;
         while(p < PositionMs + PageSizeMs)
         {
