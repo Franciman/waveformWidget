@@ -1,264 +1,173 @@
 #include "waveformview.h"
+#include <iostream>
 
-#include <QResizeEvent>
-#include <QPainter>
-#include <QScrollBar>
-#include <QHBoxLayout>
-#include <cmath>
+QColor WavBackColor = QColor(11, 19, 43);
+QColor WavColor = QColor(111, 255, 233);
+QColor RangeColor1 = QColor(62, 120, 178);
+QColor RangeColor2 = QColor(241, 136, 5);
+QColor RangeColorNonEditable = QColor(141, 153, 174);
 
-#include "timemstoshortstring.h"
-
-
-const QColor WavColor = QColor(0x00a7f24a);
-const QColor WavBackColor = QColor(Qt::black);
-const QColor ZeroLineColor = QColor(0x00518b0a);
-const QColor RangeColor1 = QColor(0x003333ff);
-const QColor RangeColor2 = QColor(0x00ff8000);
-const QColor RangeColorNotEditable = QColor(0x00c0c0c0);
-const QColor RulerBackColor = QColor(0x00514741);
-const QColor RulerTopBottomLineColor = QColor(0x00beb5ae);
-const QColor RulerTextColor = QColor(0x00e0e0e0);
-const QColor RulerTextShadowColor = QColor(Qt::black);
-const QColor CursorColor = QColor(Qt::yellow);
-
-WaveformViewport::WaveformViewport(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent) :
-    QWidget(parent),
-    Peaks(std::move(peaks)),
-    SampleRate(sampleRate),
-    SamplesPerPeak(samplesPerPeak),
-    OffscreenWav(size(), QImage::Format_ARGB32)
+void WaveformViewport::paintWav(QPainter &painter)
 {
-    setAttribute(Qt::WA_OpaquePaintEvent);
-    OldPositionMs = PositionMs = 0;
-    OldPageSizeMs = PageSizeMs = 8000;
-    LengthMs = ((Peaks.size() * SamplesPerPeak) / SampleRate) * 1000;
-    VerticalScaling = 100;
-    DisplayRulerHeight = 20;
-    QPainter imagePainter(&OffscreenWav);
-    paintWav(imagePainter, false);
-}
+    double PeaksPerSecond = double(PData.SampleRate) / PData.SamplesPerPeak;
+    double SecondsPerPixel = (PageSizeMs / 1000.0) / width();
+    double PeaksPerPixel = PeaksPerSecond * SecondsPerPixel;
+
+    // First Peak visible
+    int StartPeak = std::round((PeaksPerSecond / 1000.0) * PositionMs);
+
+    int pixel_start = 0;
+    int pixel_end = width();
+
+    unsigned int peaks_per_pixel = std::round(PeaksPerPixel);
+    unsigned int peakIndex;
+
+    // Peak to be shown
+    int peakMin, peakMax;
+    // Scaled Peak
+    int scaledPeakMin, scaledPeakMax;
 
 
-void WaveformViewport::paintWav(QPainter &painter, bool TryOptimize)
-{
-    //return;
-    if(Peaks.empty())
-    {
-        painter.fillRect(rect(), WavBackColor);
-        return;
-    }
+    QRect WavRect = painter.window();
+    // Leave room for the ruler, if it is to be shown
+    WavRect.setBottom(WavRect.bottom() - RulerHeight);
 
-    int Width = timeToPixel(PageSizeMs);
-    QRect Rect = rect();
-    //double PeaksPerPixelScaled = double(TimePerPixel * SampleRateMs) / PeakList.samplesPerPeak();
-    //double StartPositionInPeaks = double(PositionMs * SampleRateMs) / PeakList.samplesPerPeak();
-    double PeaksPerPixelScaled = (((PageSizeMs / 1000.0) * SampleRate) / SamplesPerPeak) / Width;
-    double StartPositionInPeaks =((PositionMs / 1000.0) * SampleRate) / SamplesPerPeak;
+    painter.fillRect(WavRect, WavBackColor);
 
-    int x1_update = 0;
-    int x2_update = Width;
-
-    if(TryOptimize && OldPageSizeMs == PageSizeMs)
-    {
-        int x_optim;
-        if(PositionMs > OldPositionMs)
-        {
-           x_optim = timeToPixel(OldPositionMs - PositionMs);
-           x2_update = x2_update - x_optim;
-           x1_update = Width;
-           if(x1_update != 0)
-           {
-              painter.drawImage(0, 0, OffscreenWav, x_optim, 0, x1_update, OffscreenWav.height() - DisplayRulerHeight);
-           }
-        }
-        else
-        {
-            x_optim = timeToPixel(OldPositionMs - PositionMs);
-            x1_update = 0;
-            x2_update = x_optim;
-            if(x2_update != Width)
-            {
-                painter.drawImage(x_optim, 0, OffscreenWav, 0, 0, Width - x_optim, OffscreenWav.height() - DisplayRulerHeight);
-            }
-        }
-    }
-
-    Rect.setLeft(x1_update);
-    Rect.setRight(x2_update);
-    Rect.setBottom(Rect.bottom() - DisplayRulerHeight);
-
-    int RectHeight = Rect.height();
-    int Middle = Rect.top() + (RectHeight / 2);
-
-    painter.fillRect(Rect, WavBackColor);
+    int Middle = (WavRect.height() - 1) / 2;
 
     painter.setPen(WavColor);
 
-    unsigned int x_scaled, next_x_scaled;
-    int PeakMax, PeakMin;
+    /* TODO: Use directly data extracted from file, if avaible, if zoom is huge:
+     * if(PeaksPerPixel < 1.0)
+     * {
+     * ....
+     * }
+     */
 
-
-    for(int x = x1_update; x <= x2_update; x++)
+    for(int curr_pixel = pixel_start; curr_pixel < pixel_end; ++curr_pixel)
     {
-        x_scaled = std::round((x * PeaksPerPixelScaled) + StartPositionInPeaks);
+        peakIndex = std::round(PeaksPerPixel * curr_pixel) + StartPeak;
 
-        if(x_scaled >= Peaks.size()) x_scaled = Peaks.size() - 1;
+        if(peakIndex >= PData.Peaks.size()) peakIndex = PData.Peaks.size() - 1;
 
-        PeakMax = Peaks[x_scaled].Max;
-        PeakMin = Peaks[x_scaled].Min;
+        peakMin = PData.Peaks[peakIndex].Min;
+        peakMax = PData.Peaks[peakIndex].Max;
 
-        next_x_scaled = std::min(std::round(((x + 1) * PeaksPerPixelScaled) + StartPositionInPeaks), (double)Peaks.size());
-        for(unsigned int i = x_scaled + 1; i < next_x_scaled; i++)
+        // If more than one peak per pixel needs to be shown, calculate the maximum and the minimum peaks among them and represent that peak
+        for(unsigned int peakCount = 1; peakIndex + peakCount < PData.Peaks.size() && peakCount < peaks_per_pixel; ++peakCount)
         {
-            if(Peaks[i].Max > PeakMax) PeakMax = Peaks[i].Max;
-            else if(Peaks[i].Min < PeakMin) PeakMin = Peaks[i].Min;
+            if(PData.Peaks[peakIndex + peakCount].Min < peakMin) peakMin = PData.Peaks[peakIndex + peakCount].Min;
+            if(PData.Peaks[peakIndex + peakCount].Max > peakMax) peakMax = PData.Peaks[peakIndex + peakCount].Max;
         }
 
-        int y1 = std::round((((PeakMax * VerticalScaling) / 100) * RectHeight) / 65536);
-        int y2 = std::round((((PeakMin * VerticalScaling) / 100) * RectHeight) / 65536);
-        painter.drawLine(QPoint(x, Middle - y1), QPoint(x, Middle - y2));
+        // Get scaled peaks value
+        scaledPeakMax = std::round((((peakMax * VerticalScaling) / 100.0) * WavRect.height()) / 65536);
+        scaledPeakMin = std::round((((peakMin * VerticalScaling) / 100.0) * WavRect.height()) / 65536);
+
+        painter.drawLine(QPoint(curr_pixel, Middle - scaledPeakMax), QPoint(curr_pixel, Middle - scaledPeakMin));
+
     }
+    painter.drawLine(QPoint(pixel_start, Middle), QPoint(pixel_end - 1, Middle));
 }
 
 void WaveformViewport::paintRuler(QPainter &painter)
 {
-    //return;
-    if(DisplayRulerHeight > 0)
+    Q_UNUSED(painter)
+}
+
+void WaveformViewport::paintRanges(QPainter &painter, RangeList &Subs, int topPos, int bottomPos, bool topLine, bool bottomLine)
+{
+    QColor Colors[2];
+    if(Subs.editable())
     {
-        QRect Rect = rect();
-        Rect.setTop(Rect.bottom() - DisplayRulerHeight);
+        Colors[0] = RangeColor1;
+        Colors[1] = RangeColor2;
+    }
+    else
+    {
+        Colors[0] = Colors[1] = RangeColorNonEditable;
+    }
 
-        // Draw background
-        painter.fillRect(Rect,RulerBackColor);
+    int h_line_begin;
+    int h_line_end;
 
-        // Draw horizontal line at top and bottom
-        painter.setPen(RulerTopBottomLineColor);
-        painter.drawLine(QPoint(0, Rect.top()), QPoint(width(), Rect.top()));
-        painter.drawLine(QPoint(0, Rect.bottom() - 1), QPoint(width(), Rect.bottom() - 1));
+    int RangeHeightDiv10 = (bottomPos - topPos) / 10;
+    int y1 = topPos + RangeHeightDiv10;
+    int y2 = bottomPos - RangeHeightDiv10;
 
-        // Set the text font
-        QFont font("Time New Roman", 8);
-        painter.setFont(font);
-        painter.setPen(RulerTextColor);
-        QFontMetrics metrics(font);
-
-        // Do some little calculation to try to show "round" time
-        int MaxPosStep = std::round(width() / (metrics.width("0:00:00.0") * 2));
-        int StepMs = std::round(PageSizeMs / MaxPosStep);
-        if(StepMs == 0) StepMs = 1;
-
-        int StepLog = std::trunc(std::pow(10, std::trunc(std::log10(StepMs))));
-        StepMs = (StepMs / StepLog) * StepLog;
-
-        int p = PositionMs / (StepMs * StepMs);
-        int x;
-        int x1, x2;
-        //int height, width;
-        QString PosString;
-        while(p < PositionMs + PageSizeMs)
+    RangeList::iterator subs = Subs.subsAheadOf(PositionMs);
+    while(subs != Subs.end() && subs->Time.StartTime <= PositionMs + PageSizeMs)
+    {
+        painter.setPen(Colors[subs->Number % 2]);
+        h_line_begin = 0;
+        h_line_end = width() - 1;
+        if(isPositionVisible(subs->Time.StartTime))
         {
-            // Draw main division
-            x = timeToPixel(p - PositionMs);
-            painter.drawLine(QPoint(x, Rect.top() + 1), QPoint(x, Rect.top() + 5));
-
-
-            // Calculate text coordinates
-            x1 = x - metrics.width(PosString) / 2;
-            //height = metrics.height();
-            //width = metrics.width(PosString);
-
-            if(TimeStamps.contains(p))
-            {
-                // Draw text shadow
-                painter.setPen(RulerTextShadowColor);
-                painter.drawStaticText(x1 + 2, Rect.top() + 4, *TimeStamps.object(p));
-                painter.setPen(RulerTextColor);
-                painter.drawStaticText(x1, Rect.top() + 4, *TimeStamps.object(p));
-            }
-            else
-            {
-                PosString = timeMsToShortString(p, StepLog);
-                QStaticText *timestamp = new QStaticText(PosString);
-                TimeStamps.insert(p, timestamp);
-                // Draw text shadow
-                painter.setPen(RulerTextShadowColor);
-                painter.drawStaticText(x1 + 2, Rect.top() + 4, *timestamp);
-
-                // Draw text
-                painter.setPen(RulerTextColor);
-                painter.drawStaticText(x1, Rect.top() + 4, *timestamp);
-            }
-            // Draw subdivision
-            x2 = x + timeToPixel(StepMs / 2);
-            painter.drawLine(QPoint(x2, Rect.top() + 1), QPoint(x2, Rect.top() + 3));
-            p += StepMs;
+            h_line_begin = relTimeToPixel(subs->Time.StartTime);
+            painter.drawLine(QPoint(h_line_begin, topPos), QPoint(h_line_begin, bottomPos));
         }
+        if(isPositionVisible(subs->Time.EndTime))
+        {
+           h_line_end = relTimeToPixel(subs->Time.EndTime);
+            painter.drawLine(QPoint(h_line_end, topPos), QPoint(h_line_end, bottomPos));
+        }
+        if(topLine)
+        {
+            painter.drawLine(QPoint(h_line_begin, y1), QPoint(h_line_end, y1));
+        }
+        if(bottomLine)
+        {
+            painter.drawLine(QPoint(h_line_begin, y2), QPoint(h_line_end, y2));
+        }
+
+        if(h_line_end - h_line_begin > 10)
+        {
+            const int TextMargins = 5, MinSpace = 25;
+            QRect CustomDrawRect(QPoint(h_line_begin + TextMargins, y1), QPoint(h_line_end + TextMargins, y2));
+            if(CustomDrawRect.width() > MinSpace)
+            {
+                QTextOption Opt = topLine ? QTextOption() : QTextOption(Qt::AlignBottom);
+                painter.drawText(CustomDrawRect, subs->Text, Opt);
+            }
+        }
+        ++subs;
     }
 }
 
-void WaveformViewport::scrollContentsBy(int NewPositionMs)
+void WaveformViewport::paintRangeLists(QPainter &painter)
 {
-    if(NewPositionMs + PageSizeMs - 1 > LengthMs)
+    int Height = height() - RulerHeight;
+    int SubHeight = Height / DisplayRangeLists.size();
+    unsigned int i = 0;
+    for(auto subsList = DisplayRangeLists.cbegin(); subsList != DisplayRangeLists.cend(); ++subsList, ++i)
     {
-        PositionMs = LengthMs - PageSizeMs;
+        paintRanges(painter, **subsList, SubHeight * i, SubHeight * (i+1), i == 0, i == DisplayRangeLists.size() - 1);
     }
-    else
+}
+
+void WaveformViewport::paintSelection(QPainter &painter)
+{
+    if(Selection.StartTime >= 0)
     {
-        PositionMs = NewPositionMs;
+        if(Selection.duration() == 0 && isPositionVisible(Selection.StartTime))
+        {
+            int x = relTimeToPixel(Selection.StartTime);
+            painter.drawLine(QPoint(x, 0), QPoint(x, height() - RulerHeight));
+        }
+        else
+        {
+            int x1 = Selection.StartTime >= PositionMs ? relTimeToPixel(Selection.StartTime) : 0;
+            int x2 = Selection.EndTime <= PositionMs + PageSizeMs ? relTimeToPixel(Selection.EndTime) : width() - 1;
+
+            QRect SelRect = painter.window();
+            SelRect.setLeft(x1);
+            SelRect.setRight(x2);
+            SelRect.setBottom(SelRect.bottom() - RulerHeight);
+
+            // InvertRect
+            painter.fillRect(SelRect, QColor(255, 255, 255, 50));
+        }
+
     }
-    update();
-}
-
-void WaveformViewport::paintEvent(QPaintEvent *)
-{
-    {
-        QPainter imagePainter(&OffscreenWav);
-        paintWav(imagePainter, false);
-    }
-    QPainter painter(this);
-    painter.drawImage(0, 0, OffscreenWav);
-    paintRuler(painter);
-}
-
-void WaveformViewport::resizeEvent(QResizeEvent *)
-{
-    OffscreenWav = QImage(size(), QImage::Format_ARGB32);
-    QPainter imagePainter(&OffscreenWav);
-    paintWav(imagePainter, false);
-}
-
-int WaveformViewport::timeToPixel(int time) const
-{
-    if(PageSizeMs == 0)
-        return 0;
-    else
-        return std::round(time / (PageSizeMs / width()));
-}
-
-int WaveformViewport::pixelToTime(int pixel) const
-{
-    return std::round(pixel * (PageSizeMs / width()));
-}
-
-WaveformView::WaveformView(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent) :
-        QAbstractScrollArea(parent),
-        Viewport(new WaveformViewport(std::move(peaks), sampleRate, samplesPerPeak, this))
-{
-    Viewport->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    QHBoxLayout *layout = new QHBoxLayout();
-    layout->addWidget(Viewport);
-    QWidget *scrollWidget = new QWidget(this);
-    scrollWidget->setLayout(layout);
-    setViewport(scrollWidget);
-    setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-    horizontalScrollBar()->setRange(0, Viewport->length());
-    horizontalScrollBar()->setSingleStep(50);
-    horizontalScrollBar()->setValue(0);
-}
-
-void WaveformView::scrollContentsBy(int, int)
-{
-    Viewport->scrollContentsBy(horizontalScrollBar()->value());
 }

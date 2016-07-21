@@ -8,17 +8,22 @@ QT       += core gui
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
+include(srtParser/srtParser.pri)
+
 TARGET = waveformWidget
 TEMPLATE = app
 
 
 SOURCES += main.cpp\
         mainwindow.cpp \
-    waveformview.cpp
+    waveformview.cpp \
+    waveformcontroller.cpp \
+    waveformutils.cpp
 
 HEADERS  += mainwindow.h \
     waveformview.h \
-    timemstoshortstring.h
+    timemstoshortstring.h \
+    model.h
 
 FORMS    += mainwindow.ui
 

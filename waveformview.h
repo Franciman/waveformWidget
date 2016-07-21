@@ -1,12 +1,20 @@
 #ifndef WAVEFORMVIEW_H
 #define WAVEFORMVIEW_H
 
-#include <QImage>
-#include <QPixmap>
-#include <QWidget>
+#include <QOpenGLWidget>
 #include <QAbstractScrollArea>
-#include <QCache>
-#include <QStaticText>
+#include <QScrollBar>
+#include <QHBoxLayout>
+
+#include <cmath>
+
+#include <QPainter>
+
+#include "srtParser/srtsubtitle.h"
+
+#include <iostream>
+
+#include <algorithm>
 
 struct Peak
 {
@@ -14,57 +22,268 @@ struct Peak
     int Max;
 };
 
-class WaveformViewport : public QWidget
+struct PeakData
 {
-    Q_OBJECT
-
     std::vector<Peak> Peaks;
     int SampleRate;
     int SamplesPerPeak;
-    QImage OffscreenWav;
+};
 
-    int PageSizeMs;
-    int PositionMs;
-
-    int LengthMs;
-
-    int OldPositionMs;
-    int OldPageSizeMs;
-
-    int VerticalScaling;
-
-    int DisplayRulerHeight;
-
-    QCache<int, QStaticText> TimeStamps;
-
+class RangeList
+{
+    std::vector<SrtSubtitle> Subs;
+    bool Editable;
 public:
-    WaveformViewport(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent = 0);
+    typedef std::vector<SrtSubtitle>::iterator iterator;
+    typedef std::vector<SrtSubtitle>::const_iterator const_iterator;
+    typedef std::vector<SrtSubtitle>::size_type size_type;
 
-    void scrollContentsBy(int NewPositionMs);
+    RangeList(std::vector<SrtSubtitle> &&subs, bool editable = true) :
+        Subs(std::move(subs)),
+        Editable(editable)
+    {
+        sortSubs();
+    }
 
-    int length() const { return LengthMs; }
+    iterator begin()
+    {
+        return Subs.begin();
+    }
+
+    const_iterator cbegin() const
+    {
+        return Subs.cbegin();
+    }
+
+    iterator end()
+    {
+        return Subs.end();
+    }
+
+    const_iterator cend() const
+    {
+        return Subs.cend();
+    }
+
+    const SrtSubtitle &operator[](size_type index) const
+    {
+        return Subs[index];
+    }
+
+    void addSubtitle(SrtSubtitle &&sub);
+
+    iterator subsAheadOf(int StartPosMs)
+    {
+        return std::lower_bound(Subs.begin(), Subs.end(), StartPosMs, [](const SrtSubtitle &Sub, int PosMs) -> bool
+        {
+            return Sub.Time.EndTime <= PosMs;
+        });
+    }
+
+    bool editable() const
+    {
+        return Editable;
+    }
+
+    void setEditable(bool value)
+    {
+        Editable = value;
+    }
+
+    void sortSubs()
+    {
+        std::sort(Subs.begin(), Subs.end(), [](const SrtSubtitle &s1, const SrtSubtitle &s2)
+        {
+            if(s1.Time.StartTime < s2.Time.StartTime) return true;
+            else if(s1.Time.StartTime == s2.Time.StartTime) return s1.Time.EndTime < s2.Time.EndTime;
+            else return false;
+        });
+    }
+};
+
+class SubtitleData
+{
+    // This list is always sorted based on time
+    // So that it can be searched in log(n) time
+    RangeList Subs;
+    RangeList *VO;
+public:
+    typedef RangeList::iterator iterator;
+
+    SubtitleData(RangeList &&subs, RangeList *vo = nullptr) :
+        Subs(std::move(subs)),
+        VO(vo)
+    {
+    }
+
+    bool hasVO() const
+    {
+        return VO;
+    }
+
+    const SrtSubtitle &operator[](RangeList::size_type index) const
+    {
+        return Subs[index];
+    }
+
+    iterator begin()
+    {
+        return Subs.begin();
+    }
+
+    iterator end()
+    {
+        return Subs.end();
+    }
+
+    void addSubtitle(SrtSubtitle &&sub);
+
+    RangeList *vo()
+    {
+        return VO;
+    }
+
+    RangeList *subs()
+    {
+        return &Subs;
+    }
+};
+
+class WaveformViewport : public QOpenGLWidget
+{
+    // Model data ----
+    PeakData PData;
+    SubtitleData SData;
+    // ---------------
+
+    std::vector<RangeList *> DisplayRangeLists;
+public:
+    WaveformViewport(PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
+        QOpenGLWidget(parent),
+        PData(std::move(pdata)),
+        SData(std::move(sdata))
+    {
+        if(SData.hasVO())
+        {
+            DisplayRangeLists.push_back(SData.vo());
+        }
+        DisplayRangeLists.push_back(SData.subs());
+        Selection = SData.subs()->begin()->Time;
+    }
+
+    // Getters and setters --------------------
+    void setPosition(int position)
+    {
+        PositionMs = position;
+        //update();
+    }
+
+    void incrementPosition(int increment)
+    {
+        PositionMs += increment;
+    }
+
+    int position() const
+    {
+        return PositionMs;
+    }
+
+    int audioLength() const
+    {
+        return (PData.Peaks.size() * PData.SamplesPerPeak) / PData.SampleRate;
+    }
+
+    void setPageSize(int pageSize)
+    {
+        PageSizeMs = pageSize;
+    }
+
+    int pageSize() const
+    {
+        return PageSizeMs;
+    }
+    // --------------------------------------
+
+
 protected:
-    virtual void paintEvent(QPaintEvent *) override;
-    virtual void resizeEvent(QResizeEvent *) override;
+    void paintGL() override
+    {
+        QPainter painter(this);
+        paintWav(painter);
+        paintRuler(painter);
+        paintRangeLists(painter);
+        paintSelection(painter);
+    }
+
 private:
-    void paintWav(QPainter &painter, bool TryOptimize);
+    // Time to Pixel and viceversa conversion ---
+    inline unsigned int timeToPixel(int Time) const
+    {
+        double PixelPerMs = width() / double(PageSizeMs);
+        return std::round(PixelPerMs * Time);
+    }
+
+    inline unsigned int relTimeToPixel(int Time) const
+    {
+        return timeToPixel(Time - PositionMs);
+    }
+
+    inline unsigned int pixelToTime(int Pixel) const
+    {
+        double MsPerPixel = double(PageSizeMs) / width();
+        return std::round(MsPerPixel * Pixel) + PositionMs;
+    }
+
+    // ------------------------------------------
+
+
+    void paintWav(QPainter &painter);
     void paintRuler(QPainter &painter);
+    void paintRangeLists(QPainter &painter);
+    void paintRanges(QPainter &painter, RangeList &Subs, int topPos, int bottomPos, bool topLine, bool bottomLine);
+    void paintSelection(QPainter &painter);
 
-    int timeToPixel(int time) const;
-    int pixelToTime(int pixel) const;
+    bool isPositionVisible(int PosMs) const
+    {
+        return PositionMs <= PosMs && PosMs <= PositionMs + PageSizeMs;
+    }
 
+private:
+    int PositionMs = 0; // This indicates the portion of waveform to draw
+    int PageSizeMs = 8000; // This represents horizontal zoom
+    int VerticalScaling = 100; // This represents vertical zoom
 
+    int RulerHeight = 0; // Ruler height, if 0, the ruler won't be displayed
+
+    Range Selection = Range { -1, 0 }; // Range representing selection, if the selection is present Selection.StartTime >= 0 otherwise it's < 0
 };
 
 class WaveformView : public QAbstractScrollArea
 {
-    Q_OBJECT
-
-    WaveformViewport *Viewport;
 public:
-    WaveformView(std::vector<Peak> &&peaks, int sampleRate, int samplesPerPeak, QWidget *parent = 0);
+    WaveformView(PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
+        QAbstractScrollArea(parent),
+        Viewport(new WaveformViewport(std::move(pdata), std::move(sdata), this))
+    {
+        Viewport->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        QHBoxLayout *layout = new QHBoxLayout;
+        layout->addWidget(Viewport);
+        viewport()->setLayout(layout);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+        horizontalScrollBar()->setRange(0, Viewport->audioLength() * 1000);
+        horizontalScrollBar()->setSingleStep(50);
+    }
+
 protected:
-    virtual void scrollContentsBy(int, int) override;
+    void scrollContentsBy(int, int) override
+    {
+        Viewport->setPosition(horizontalScrollBar()->value());
+        Viewport->update();
+    }
+
+private:
+    WaveformViewport *Viewport;
 };
 
 #endif // WAVEFORMVIEW_H
