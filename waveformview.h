@@ -9,8 +9,10 @@
 #include <cmath>
 
 #include <QPainter>
+#include <QTimer>
 
 #include "srtParser/srtsubtitle.h"
+#include "constrain.h"
 
 #include <iostream>
 
@@ -76,7 +78,7 @@ public:
     {
         return std::lower_bound(Subs.begin(), Subs.end(), StartPosMs, [](const SrtSubtitle &Sub, int PosMs) -> bool
         {
-            return Sub.Time.EndTime <= PosMs;
+            return Sub.Time.EndTime < PosMs;
         });
     }
 
@@ -98,6 +100,18 @@ public:
             else if(s1.Time.StartTime == s2.Time.StartTime) return s1.Time.EndTime < s2.Time.EndTime;
             else return false;
         });
+    }
+
+    iterator getNearestSubtitleAt(int PosMs)
+    {
+        auto it = subsAheadOf(PosMs);
+        auto result = Subs.end();
+        while(it != Subs.end() && it->Time.StartTime <= PosMs)
+        {
+            result = it;
+            ++it;
+        }
+        return result;
     }
 };
 
@@ -151,6 +165,8 @@ public:
 
 class WaveformViewport : public QOpenGLWidget
 {
+    Q_OBJECT
+
     // Model data ----
     PeakData PData;
     SubtitleData SData;
@@ -169,6 +185,9 @@ public:
         }
         DisplayRangeLists.push_back(SData.subs());
         Selection = SData.subs()->begin()->Time;
+
+        connect(&PlayCursorUpdater, SIGNAL(timeout()), this, SLOT(updatePlayCursorPos()));
+        PlayCursorUpdater.start(UpdateIntervalMs);
     }
 
     // Getters and setters --------------------
@@ -213,7 +232,12 @@ protected:
         paintRuler(painter);
         paintRangeLists(painter);
         paintSelection(painter);
+        paintCursor(painter);
+        paintPlayCursor(painter);
     }
+
+    void mouseDoubleClickEvent(QMouseEvent *ev) override;
+    void mousePressEvent(QMouseEvent *ev) override;
 
 private:
     // Time to Pixel and viceversa conversion ---
@@ -242,20 +266,55 @@ private:
     void paintRangeLists(QPainter &painter);
     void paintRanges(QPainter &painter, RangeList &Subs, int topPos, int bottomPos, bool topLine, bool bottomLine);
     void paintSelection(QPainter &painter);
+    void paintCursor(QPainter &painter);
+    void paintPlayCursor(QPainter &painter);
+
+    // Utilities ----------------------------------------
 
     bool isPositionVisible(int PosMs) const
     {
         return PositionMs <= PosMs && PosMs <= PositionMs + PageSizeMs;
     }
 
+    RangeList &getRangeListFromPos(int y)
+    {
+        int SubHeight = (height() - RulerHeight) / DisplayRangeLists.size();
+        int index = std::floor(y / SubHeight);
+        Constrain(index, 0, (int)DisplayRangeLists.size() - 1);
+        return *DisplayRangeLists[index];
+    }
+
+    // ----------------------------------------------------
+
+    void mousePressCoolEdit(QMouseEvent *ev, RangeList &RangeListClicked);
+
 private:
     int PositionMs = 0; // This indicates the portion of waveform to draw
-    int PageSizeMs = 8000; // This represents horizontal zoom
+    int PageSizeMs = 15000; // This represents horizontal zoom
     int VerticalScaling = 100; // This represents vertical zoom
+
+    int CursorMs = 100; // Cursor position in milliseconds
+
+    bool IsPlaying = true; // Flag indicating whether the media is being played
+    int PlayCursorMs = 200; // Play Cursor position in milliseconds
 
     int RulerHeight = 0; // Ruler height, if 0, the ruler won't be displayed
 
     Range Selection = Range { -1, 0 }; // Range representing selection, if the selection is present Selection.StartTime >= 0 otherwise it's < 0
+
+    bool MouseDown = false; // Flag indicating whether the left mouse button is currently down
+
+    int UpdateIntervalMs = 17;
+
+    QTimer PlayCursorUpdater;
+
+private slots:
+    void updatePlayCursorPos()
+    {
+        PlayCursorMs += UpdateIntervalMs;
+        update();
+    }
+
 };
 
 class WaveformView : public QAbstractScrollArea

@@ -6,6 +6,8 @@ QColor WavColor = QColor(111, 255, 233);
 QColor RangeColor1 = QColor(62, 120, 178);
 QColor RangeColor2 = QColor(241, 136, 5);
 QColor RangeColorNonEditable = QColor(141, 153, 174);
+QColor SelectionColor = QColor(255, 255, 255, 50);
+QColor CursorColor = QColor(74, 49, 77);
 
 void WaveformViewport::paintWav(QPainter &painter)
 {
@@ -166,8 +168,28 @@ void WaveformViewport::paintSelection(QPainter &painter)
             SelRect.setBottom(SelRect.bottom() - RulerHeight);
 
             // InvertRect
-            painter.fillRect(SelRect, QColor(255, 255, 255, 50));
+            painter.fillRect(SelRect, SelectionColor);
         }
 
+    }
+}
+
+void WaveformViewport::paintCursor(QPainter &painter)
+{
+    painter.setPen(QPen(CursorColor, 1, Qt::DotLine));
+    int x_pos = relTimeToPixel(CursorMs);
+    painter.drawLine(QPoint(x_pos, 0), QPoint(x_pos, height() - RulerHeight));
+}
+
+void WaveformViewport::paintPlayCursor(QPainter &painter)
+{
+    if(IsPlaying)
+    {
+        if(isPositionVisible(PlayCursorMs))
+        {
+            painter.setPen(SelectionColor);
+            int x = relTimeToPixel(PlayCursorMs);
+            painter.drawLine(QPoint(x, 0), QPoint(x, height() - RulerHeight));
+        }
     }
 }

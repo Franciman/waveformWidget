@@ -23,7 +23,8 @@ SOURCES += main.cpp\
 HEADERS  += mainwindow.h \
     waveformview.h \
     timemstoshortstring.h \
-    model.h
+    model.h \
+    constrain.h
 
 FORMS    += mainwindow.ui
 
