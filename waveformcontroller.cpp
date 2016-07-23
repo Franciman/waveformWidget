@@ -2,6 +2,8 @@
 
 #include <QMouseEvent>
 
+#include "renderer.h"
+
 void WaveformViewport::mouseDoubleClickEvent(QMouseEvent *ev)
 {
     int x = ev->pos().x();
@@ -47,4 +49,10 @@ void WaveformViewport::mousePressCoolEdit(QMouseEvent *ev, RangeList &RangeListC
         CursorMs = NewCursorPosMs;
     }
 
+}
+
+void WaveformViewport::updatePlayCursorPos()
+{
+    PlayCursorMs = Rend->getPositionMs();
+    update();
 }

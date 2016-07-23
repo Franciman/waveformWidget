@@ -18,14 +18,18 @@ SOURCES += main.cpp\
         mainwindow.cpp \
     waveformview.cpp \
     waveformcontroller.cpp \
-    waveformutils.cpp
+    waveformutils.cpp \
+    renderer.cpp
 
 HEADERS  += mainwindow.h \
     waveformview.h \
     timemstoshortstring.h \
     model.h \
-    constrain.h
+    constrain.h \
+    renderer.h
 
 FORMS    += mainwindow.ui
 
-CONFIG += c++11
+CONFIG += c++11 link_pkgconfig
+
+PKGCONFIG += mpv

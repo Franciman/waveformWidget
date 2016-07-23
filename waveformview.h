@@ -18,6 +18,8 @@
 
 #include <algorithm>
 
+class Renderer;
+
 struct Peak
 {
     int Min;
@@ -172,12 +174,15 @@ class WaveformViewport : public QOpenGLWidget
     SubtitleData SData;
     // ---------------
 
+    Renderer *Rend;
+
     std::vector<RangeList *> DisplayRangeLists;
 public:
-    WaveformViewport(PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
+    WaveformViewport(Renderer *rend, PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
         QOpenGLWidget(parent),
         PData(std::move(pdata)),
-        SData(std::move(sdata))
+        SData(std::move(sdata)),
+        Rend(rend)
     {
         if(SData.hasVO())
         {
@@ -304,25 +309,20 @@ private:
 
     bool MouseDown = false; // Flag indicating whether the left mouse button is currently down
 
-    int UpdateIntervalMs = 17;
+    int UpdateIntervalMs = 17; // Set to 17 ms in order to try to achieve 60 fps
 
     QTimer PlayCursorUpdater;
 
 private slots:
-    void updatePlayCursorPos()
-    {
-        PlayCursorMs += UpdateIntervalMs;
-        update();
-    }
-
+    void updatePlayCursorPos();
 };
 
 class WaveformView : public QAbstractScrollArea
 {
 public:
-    WaveformView(PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
+    WaveformView(Renderer *R, PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
         QAbstractScrollArea(parent),
-        Viewport(new WaveformViewport(std::move(pdata), std::move(sdata), this))
+        Viewport(new WaveformViewport(R, std::move(pdata), std::move(sdata), this))
     {
         Viewport->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         QHBoxLayout *layout = new QHBoxLayout;

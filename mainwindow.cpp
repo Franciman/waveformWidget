@@ -11,6 +11,8 @@
 
 #include "srtParser/srtparser.h"
 
+#include "renderer.h"
+
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow)
@@ -40,7 +42,10 @@ MainWindow::MainWindow(QWidget *parent) :
 
     RangeList *VO = new RangeList(std::move(Subs2), false);
     SubtitleData sdata(RangeList(std::move(Subs), true), VO);
-    Waveform = new WaveformView(std::move(data), std::move(sdata), this);
+
+    Renderer *R = new Renderer("/home/francesco/Desktop/vid.mp4");
+
+    Waveform = new WaveformView(R, std::move(data), std::move(sdata), this);
     Waveform->setFixedHeight(300);
     setCentralWidget(Waveform);
 }
