@@ -1,6 +1,8 @@
 #include "waveformview.h"
 #include <iostream>
 
+// #include "mediaProcessor/peaks.h"
+
 QColor WavBackColor = QColor(11, 19, 43);
 QColor WavColor = QColor(111, 255, 233);
 QColor RangeColor1 = QColor(62, 120, 178);
@@ -8,6 +10,14 @@ QColor RangeColor2 = QColor(241, 136, 5);
 QColor RangeColorNonEditable = QColor(141, 153, 174);
 QColor SelectionColor = QColor(255, 255, 255, 50);
 QColor CursorColor = QColor(74, 49, 77);
+
+/*PeakData::PeakData(Peaks &p) :
+    Data(p.peaks_begin(), p.peaks_end()),
+    SampleRate(p.sampleRate()),
+    SamplesPerPeak(p.samplesPerPeak())
+{
+
+}*/
 
 void WaveformViewport::paintWav(QPainter &painter)
 {
@@ -51,16 +61,16 @@ void WaveformViewport::paintWav(QPainter &painter)
     {
         peakIndex = std::round(PeaksPerPixel * curr_pixel) + StartPeak;
 
-        if(peakIndex >= PData.Peaks.size()) peakIndex = PData.Peaks.size() - 1;
+        if(peakIndex >= PData.Data.size()) peakIndex = PData.Data.size() - 1;
 
-        peakMin = PData.Peaks[peakIndex].Min;
-        peakMax = PData.Peaks[peakIndex].Max;
+        peakMin = PData.Data[peakIndex].Min;
+        peakMax = PData.Data[peakIndex].Max;
 
         // If more than one peak per pixel needs to be shown, calculate the maximum and the minimum peaks among them and represent that peak
-        for(unsigned int peakCount = 1; peakIndex + peakCount < PData.Peaks.size() && peakCount < peaks_per_pixel; ++peakCount)
+        for(unsigned int peakCount = 1; peakIndex + peakCount < PData.Data.size() && peakCount < peaks_per_pixel; ++peakCount)
         {
-            if(PData.Peaks[peakIndex + peakCount].Min < peakMin) peakMin = PData.Peaks[peakIndex + peakCount].Min;
-            if(PData.Peaks[peakIndex + peakCount].Max > peakMax) peakMax = PData.Peaks[peakIndex + peakCount].Max;
+            if(PData.Data[peakIndex + peakCount].Min < peakMin) peakMin = PData.Data[peakIndex + peakCount].Min;
+            if(PData.Data[peakIndex + peakCount].Max > peakMax) peakMax = PData.Data[peakIndex + peakCount].Max;
         }
 
         // Get scaled peaks value

@@ -13,6 +13,8 @@
 
 #include "renderer.h"
 
+#include <QVideoWidget>
+
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow)
@@ -43,11 +45,15 @@ MainWindow::MainWindow(QWidget *parent) :
     RangeList *VO = new RangeList(std::move(Subs2), false);
     SubtitleData sdata(RangeList(std::move(Subs), true), VO);
 
-    Renderer *R = new Renderer("/home/francesco/Desktop/vid.mp4");
+    QVideoWidget *video = new QVideoWidget(this);
 
-    Waveform = new WaveformView(R, std::move(data), std::move(sdata), this);
-    Waveform->setFixedHeight(300);
-    setCentralWidget(Waveform);
+    AbstractRenderer *R = new QRenderer;
+    R->setVideoOutput(video);
+    R->loadMedia("/home/francesco/Desktop/vid.mp4");;
+
+    //Waveform = new WaveformView(R, std::move(data), std::move(sdata), this);
+    //Waveform->setFixedHeight(300);
+    setCentralWidget(video);
 }
 
 MainWindow::~MainWindow()
