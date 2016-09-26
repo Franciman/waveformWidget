@@ -15,24 +15,27 @@
 
 #include <QVideoWidget>
 
+#include "mediaProcessor/mediafile.h"
+#include "mediaProcessor/mediaprocessor.h"
+
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    std::ifstream input("/home/francesco/Desktop/PeakFile");
-    int SampleRate, SamplesPerPeak;
-    input >> SampleRate;
-    input >> SamplesPerPeak;
-    std::vector<Peak> Peaks;
-    int Min, Max;
-    while(input)
+
+    MediaFile file("/home/francesco/Desktop/vid.mp4");
+    AVStream **AudioStream = file.best_stream_of_type(AVMEDIA_TYPE_AUDIO);
+    Peaks P;
+    if(AudioStream != file.streams_end())
     {
-        input >> Min;
-        input >> Max;
-        Peaks.push_back(Peak { Min, Max });
+        MediaExtractor extractor(file, *AudioStream, nullptr, P);
+        P = extractor.ExtractPeaksAndSceneChanges();
     }
-    input.close();
+    else
+    {
+        return;
+    }
 
     QFile f("/home/francesco/Desktop/VO.srt");
     f.open(QFile::ReadOnly);
@@ -40,20 +43,16 @@ MainWindow::MainWindow(QWidget *parent) :
     std::vector<SrtSubtitle> Subs = parser.parseSubs();
     auto Subs2 = Subs;
     f.close();
-    PeakData data = PeakData{ std::move(Peaks), SampleRate, SamplesPerPeak };
 
     RangeList *VO = new RangeList(std::move(Subs2), false);
     SubtitleData sdata(RangeList(std::move(Subs), true), VO);
 
-    QVideoWidget *video = new QVideoWidget(this);
+    AbstractRenderer *R = new Renderer;
+    R->loadMedia("/home/francesco/Desktop/vid.mp4");
 
-    AbstractRenderer *R = new QRenderer;
-    R->setVideoOutput(video);
-    R->loadMedia("/home/francesco/Desktop/vid.mp4");;
-
-    //Waveform = new WaveformView(R, std::move(data), std::move(sdata), this);
-    //Waveform->setFixedHeight(300);
-    setCentralWidget(video);
+    Waveform = new WaveformView(R, std::move(P), std::move(sdata), this);
+    Waveform->setFixedHeight(300);
+    setCentralWidget(Waveform);
 }
 
 MainWindow::~MainWindow()

@@ -35,6 +35,7 @@ Renderer::Renderer() :
 
     mpv_set_option_string(mpv, "vo", "null");
 
+
     connect(this, SIGNAL(mpv_events()), this, SLOT(on_mpv_events()), Qt::QueuedConnection);
     mpv_set_wakeup_callback(mpv, wakeup, this);
     mpv_observe_property(mpv, TimePosReplyCode, "playback-time", MPV_FORMAT_DOUBLE);
@@ -45,7 +46,7 @@ Renderer::Renderer() :
 
     //const char *args[] = {"loadfile", filename, nullptr};
     //mpv_command(mpv, args);
-    //mpv_set_property_string(mpv, "pause", "yes");
+    mpv_set_property_string(mpv, "pause", "yes");
 }
 
 void Renderer::loadMedia(const char *filename)
@@ -57,6 +58,15 @@ void Renderer::loadMedia(const char *filename)
 void Renderer::setVideoOutput(QWidget *widget)
 {
     Q_UNUSED(widget)
+}
+
+int Renderer::getPositionMs() const
+{
+    /*double time;
+    mpv_get_property(mpv, "playback-time", MPV_FORMAT_DOUBLE, &time);
+    time *= 1000.0;
+    return (int)time;*/
+    return TimePosMs;
 }
 
 Renderer::~Renderer()
@@ -78,6 +88,8 @@ void Renderer::handle_mpv_event(mpv_event *event)
                 TimePosMs = *static_cast<double*>(prop->data) * 1000.0;
                 // Avoid TimePosMs being negative
                 TimePosMs = std::max(0, TimePosMs);
+                std::cout << TimePosMs << std::endl;
+                emit positionChanged(TimePosMs);
             }
         }
         break;
@@ -97,11 +109,11 @@ void Renderer::on_mpv_events()
     }
 }
 
-
 QRenderer::QRenderer() :
     AbstractRenderer(),
     player(new QMediaPlayer(nullptr))
 {
+    connect(player, SIGNAL(positionChanged(qint64)), this, SLOT(emitPositionChanged(qint64)));
 }
 
 QRenderer::~QRenderer()
@@ -123,4 +135,9 @@ void QRenderer::setVideoOutput(QWidget *widget)
 int QRenderer::getPositionMs() const
 {
     return player->position();
+}
+
+void QRenderer::emitPositionChanged(qint64 PosMs)
+{
+    emit positionChanged(PosMs);
 }

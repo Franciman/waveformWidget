@@ -76,7 +76,6 @@ struct Range
         return EndTime - StartTime;
     }
 
-
     bool operator==(const Range &other) const
     {
         return StartTime == other.StartTime && EndTime == other.EndTime;
@@ -85,6 +84,11 @@ struct Range
     bool operator!=(const Range &other) const
     {
         return !(*this == other);
+    }
+
+    bool operator<(const Range &other) const
+    {
+        return StartTime < other.StartTime || (StartTime == other.StartTime && EndTime < other.EndTime);
     }
 };
 
@@ -107,6 +111,11 @@ struct SrtSubtitle
         stream << Number << "\n";
         stream << msToString(Time.StartTime) << " --> " << msToString(Time.EndTime) << "\n";
         stream << Text << "\n\n";
+    }
+
+    bool operator<(const SrtSubtitle &other) const
+    {
+        return Time < other.Time;
     }
 private:
     static QString msToString(int ms)

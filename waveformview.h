@@ -11,8 +11,10 @@
 #include <QPainter>
 #include <QTimer>
 
-#include "srtParser/srtsubtitle.h"
+#include "mediaProcessor/peaks.h"
 #include "constrain.h"
+
+#include "model.h"
 
 #include <iostream>
 
@@ -20,177 +22,12 @@
 
 class AbstractRenderer;
 
-struct Peak
-{
-    int Min;
-    int Max;
-};
-
-struct PeakData
-{
-    std::vector<Peak> Data;
-    int SampleRate;
-    int SamplesPerPeak;
-};
-
-class RangeList
-{
-    std::vector<SrtSubtitle> Subs;
-    bool Editable;
-public:
-    typedef std::vector<SrtSubtitle>::iterator iterator;
-    typedef std::vector<SrtSubtitle>::const_iterator const_iterator;
-    typedef std::vector<SrtSubtitle>::size_type size_type;
-
-    RangeList(std::vector<SrtSubtitle> &&subs, bool editable = true) :
-        Subs(std::move(subs)),
-        Editable(editable)
-    {
-        sortSubs();
-    }
-
-    iterator begin()
-    {
-        return Subs.begin();
-    }
-
-    const_iterator cbegin() const
-    {
-        return Subs.cbegin();
-    }
-
-    iterator end()
-    {
-        return Subs.end();
-    }
-
-    const_iterator cend() const
-    {
-        return Subs.cend();
-    }
-
-    const SrtSubtitle &operator[](size_type index) const
-    {
-        return Subs[index];
-    }
-
-    void addSubtitle(SrtSubtitle &&sub);
-
-    iterator subsAheadOf(int StartPosMs)
-    {
-        return std::lower_bound(Subs.begin(), Subs.end(), StartPosMs, [](const SrtSubtitle &Sub, int PosMs) -> bool
-        {
-            return Sub.Time.EndTime < PosMs;
-        });
-    }
-
-    bool editable() const
-    {
-        return Editable;
-    }
-
-    void setEditable(bool value)
-    {
-        Editable = value;
-    }
-
-    void sortSubs()
-    {
-        std::sort(Subs.begin(), Subs.end(), [](const SrtSubtitle &s1, const SrtSubtitle &s2)
-        {
-            if(s1.Time.StartTime < s2.Time.StartTime) return true;
-            else if(s1.Time.StartTime == s2.Time.StartTime) return s1.Time.EndTime < s2.Time.EndTime;
-            else return false;
-        });
-    }
-
-    iterator getNearestSubtitleAt(int PosMs)
-    {
-        auto it = subsAheadOf(PosMs);
-        auto result = Subs.end();
-        while(it != Subs.end() && it->Time.StartTime <= PosMs)
-        {
-            result = it;
-            ++it;
-        }
-        return result;
-    }
-};
-
-class SubtitleData
-{
-public:
-    typedef RangeList::iterator iterator;
-
-private:
-    // This list is always sorted based on time
-    // So that it can be searched in log(n) time
-    RangeList Subs;
-    RangeList *VO;
-    iterator Selected;
-public:
-
-    SubtitleData(RangeList &&subs, RangeList *vo = nullptr) :
-        Subs(std::move(subs)),
-        VO(vo),
-        Selected(Subs.end())
-    {
-    }
-
-    bool hasVO() const
-    {
-        return VO;
-    }
-
-    const SrtSubtitle &operator[](RangeList::size_type index) const
-    {
-        return Subs[index];
-    }
-
-    iterator begin()
-    {
-        return Subs.begin();
-    }
-
-    iterator end()
-    {
-        return Subs.end();
-    }
-
-    void addSubtitle(SrtSubtitle &&sub);
-
-    RangeList *vo()
-    {
-        return VO;
-    }
-
-    RangeList *subs()
-    {
-        return &Subs;
-    }
-
-    void setSelectedSubtitle(iterator sub)
-    {
-        Selected = sub;
-    }
-
-    iterator selectedSubtitle()
-    {
-        return Selected;
-    }
-
-    bool hasSelected()
-    {
-        return Selected != Subs.end();
-    }
-};
-
 class WaveformViewport : public QOpenGLWidget
 {
     Q_OBJECT
 
     // Model data ----
-    PeakData PData;
+    Peaks PData;
     SubtitleData SData;
     // ---------------
 
@@ -205,30 +42,10 @@ class WaveformViewport : public QOpenGLWidget
         FocusNone
     };
 
-    FocusingMode FocMode = FocusNone;
-    int FocusingTimeMs; // Only valid when FocMode != FocusNone
-    SubtitleData::iterator FocusedSubtitle;
+
+
 public:
-    WaveformViewport(AbstractRenderer *rend, PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
-        QOpenGLWidget(parent),
-        PData(std::move(pdata)),
-        SData(std::move(sdata)),
-        Rend(rend),
-        FocusedSubtitle(SData.end())
-    {
-        if(SData.hasVO())
-        {
-            DisplayRangeLists.push_back(SData.vo());
-        }
-        DisplayRangeLists.push_back(SData.subs());
-        Selection = SData.subs()->begin()->Time;
-
-        connect(&PlayCursorUpdater, SIGNAL(timeout()), this, SLOT(updatePlayCursorPos()));
-        PlayCursorUpdater.start(UpdateIntervalMs);
-
-        // Receive move events even when no mouse button is clicked
-        setMouseTracking(true);
-    }
+    WaveformViewport(AbstractRenderer *rend, Peaks &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr);
 
     // Getters and setters --------------------
     void setPosition(int position)
@@ -249,7 +66,7 @@ public:
 
     int audioLength() const
     {
-        return (PData.Data.size() * PData.SamplesPerPeak) / PData.SampleRate;
+        return (PData.peaksNumber() * PData.samplesPerPeak()) / PData.sampleRate();
     }
 
     void setPageSize(int pageSize)
@@ -271,6 +88,7 @@ protected:
         QPainter painter(&offscreen);
         paintWav(painter);
         paintRuler(painter);
+        paintMinimumBlank(painter, 0, offscreen.height() - 1);
         paintRangeLists(painter);
         paintSelection(painter);
         paintCursor(painter);
@@ -283,6 +101,7 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent *ev) override;
     void mousePressEvent(QMouseEvent *ev) override;
     void mouseMoveEvent(QMouseEvent *ev) override;
+    void mouseReleaseEvent(QMouseEvent *ev) override;
 
 private:
     // Time to Pixel and viceversa conversion ---
@@ -318,6 +137,7 @@ private:
     void paintSelection(QPainter &painter);
     void paintCursor(QPainter &painter);
     void paintPlayCursor(QPainter &painter);
+    void paintMinimumBlank(QPainter &painter, int rangeTop, int rangeBottom);
 
     // Utilities ----------------------------------------
 
@@ -344,6 +164,13 @@ private:
         return Selection.StartTime >= 0;
     }
 
+    bool findFocusingSubtitle(int CursorPosMs, RangeList &RL, int ToleranceFromBorder, int PositionTolerance);
+
+    static bool checkRangeForFocusing(Range &R, int CursorPosMs, int ToleranceFromBorder, FocusingMode &NewMode, int &NewFocusTime);
+
+    int findSnappingPoint(int PosMs, RangeList &RL);
+    int findCorrectedSnappingPoint(int PosMs, RangeList &RL);
+
     // ----------------------------------------------------
 
     void mousePressCoolEdit(QMouseEvent *ev, RangeList &RangeListClicked);
@@ -364,20 +191,42 @@ private:
 
     int SelectionOriginMs = -1; // The point where the mouse was clicked before a selection was highlighted, if valid its value is >= 0, otherwise it's < 0
 
+
+    FocusingMode FocusMode = FocusNone; // Flag indicating if the Focused time is left or right limit of a range, if set to FocusNone, no time is focused
+    int FocusedTimeMs; // Focused limit of a range
+    SubtitleData::iterator FocusedSubtitle; // If the focused time is of a subtitle, this iterator points to the desired subtitle, otherwise it's end() of SubtitleData
+    SubtitleData::iterator OldFocusedSubtitle; // Previous focused subtitle
+
     bool MouseDown = false; // Flag indicating whether the left mouse button is currently down
 
-    int UpdateIntervalMs = 30; // Set to 17 ms in order to try to achieve 60 fps
+    bool EnableSnapping = true; // Flag indicating whether to adjust mouse pos to a snapping point
 
-    QTimer PlayCursorUpdater;
+    bool EnableMouseAntiOverlapping = true; // Flag indicating whether to prevent subtitle overlapping
+
+    // Anti overlapping informations
+    int MinSelTime = -1; // Minimum valid time, if valid it's >= 0
+    int MaxSelTime = -1; // Maximum valid time, if valid it's >= 0
+
+    bool SubChanged = false; // Flag indicating whether to sort subs
+
+    // int UpdateIntervalMs = 17; // Set to 17 ms in order to try to achieve 60 fps
+
+    // QTimer PlayCursorUpdater;
+
+    bool ShowMinBlank = true;
+    int MinimumBlankMs = 1; //Minimum blank between subtitles
+    MinBlankInfo Info1;
+    MinBlankInfo Info2;
 
 private slots:
     void updatePlayCursorPos();
+    void updatePlayCursorPos(int PosMs);
 };
 
 class WaveformView : public QAbstractScrollArea
 {
 public:
-    WaveformView(AbstractRenderer *R, PeakData &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
+    WaveformView(AbstractRenderer *R, Peaks &&pdata, SubtitleData &&sdata, QWidget *parent = nullptr) :
         QAbstractScrollArea(parent),
         Viewport(new WaveformViewport(R, std::move(pdata), std::move(sdata), this))
     {

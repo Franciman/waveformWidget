@@ -21,6 +21,9 @@ public:
     virtual void loadMedia(const char *filename) = 0;
 
     virtual void setVideoOutput(QWidget *widget) = 0;
+
+signals:
+    void positionChanged(int PosMs);
 };
 
 class Renderer : public AbstractRenderer
@@ -30,10 +33,7 @@ public:
     Renderer();
     ~Renderer();
 
-    int getPositionMs() const override
-    {
-        return TimePosMs;
-    }
+    int getPositionMs() const override;
 
     void loadMedia(const char *filename);
 
@@ -68,6 +68,9 @@ public:
 
 private:
     QMediaPlayer *player;
+
+private slots:
+    void emitPositionChanged(qint64 PosMs);
 };
 
 #endif // RENDERER_H
