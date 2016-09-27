@@ -345,6 +345,7 @@ void WaveformViewport::mouseMoveEvent(QMouseEvent *ev)
                     int NewTime;
                     if(checkRangeForFocusing(Selection, CursorPosMs, ToleranceFromBorder, NewMode, NewTime))
                     {
+                        setCursor(Qt::SizeHorCursor);
                         FocusMode = NewMode;
                         FocusedTimeMs = NewTime;
                         // Invalidate focused subtitle,
@@ -354,8 +355,8 @@ void WaveformViewport::mouseMoveEvent(QMouseEvent *ev)
                         if(OldFocusedSubtitle != FocusedSubtitle)
                         {
                             update();
-                            return;
                         }
+                        return;
                     }
                 }
             }
